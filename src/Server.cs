@@ -68,7 +68,7 @@ while (true)
     }
     else if (path.StartsWith("/echo"))
     {
-        var rest = path.AsSpan().Slice(4);
+        var rest = path.Length > 6 ? path.AsSpan().Slice(6) : string.Empty;
         content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {rest.Length}\r\n\r\n{rest}");
     }
     else
