@@ -133,7 +133,8 @@ async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionar
 static string GetEmptyResponse(HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
-    return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\n\r\n";
+    var contentLengthHeader = contentLength is not null ? $"\r\nContent-Length: {contentLength}" : string.Empty;
+    return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}{contentLengthHeader}\r\n\r\n";
 }
 
 static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
