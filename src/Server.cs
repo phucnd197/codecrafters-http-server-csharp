@@ -61,7 +61,8 @@ while (true)
     }
 
     byte[] content;
-    var path = GetPath(requestLine);
+    var (_, path, _) = ParseRequestLine(requestLine);
+    var headers = ParseHeaders(header);
     if (path == "/")
     {
         content = Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n\r\n");
@@ -71,6 +72,11 @@ while (true)
         var rest = path.Length > 6 ? path.AsSpan().Slice(6) : string.Empty;
         content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {rest.Length}\r\n\r\n{rest}");
     }
+    else if (path.StartsWith("/user-agent"))
+    {
+        var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
+        content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgent.Length}\r\n\r\n{userAgent}");
+    }
     else
     {
         content = Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -79,14 +85,30 @@ while (true)
     await networkStream.WriteAsync(content);
 }
 
-static string GetPath(string requestLine)
+static RequestLine ParseRequestLine(string requestLine)
 {
     var components = requestLine.Split(' ');
-    return components[1];
+    return new RequestLine(components[0], components[1], components[2]);
 }
 
-static bool TryGetIndexOf(string str, string sub, out int index)
+static Dictionary<string, List<string>> ParseHeaders(string? header)
 {
-    index = str.IndexOf(sub);
-    return index != -1;
+    if (string.IsNullOrEmpty(header))
+    {
+        return [];
+    }
+    var headerRaws = header.Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+    var headers = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+    foreach (var headerRaw in headerRaws)
+    {
+        var component = headerRaw.Split(":", 2, StringSplitOptions.TrimEntries);
+        if (!headers.TryGetValue(component[0], out var values))
+        {
+            headers[component[0].ToLower()] = values = [];
+        }
+        values.Add(component[1]);
+    }
+    return headers;
 }
+
+record struct RequestLine(string Method, string Path, string? Protocol);
