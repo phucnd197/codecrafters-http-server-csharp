@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "codecrafters-http-server": {
+      "commandName": "Project",
+      "commandLineArgs": "--directory \"C:\\Users\\PhucNguyen\\Documents\\Books\""
+    }
+  }
+}
