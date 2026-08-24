@@ -98,7 +98,7 @@ async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary
 static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
-    return content.Length == 0
+    return content.Length == 0 && contentLength is null
         ? $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {status?.ToString() ?? statusCode ?? "OK"}{contentTypeHeader}\r\n\r\n"
         : $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {status?.ToString() ?? statusCode ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
 }
