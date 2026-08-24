@@ -29,18 +29,22 @@ async Task ProcessClientAsync(Socket socket)
     {
         using var networkStream = new NetworkStream(socket);
         var reader = PipeReader.Create(networkStream);
-        var (requestLine, header) = await ReadPayloadAsync(headerDelimiter, requestLineSelimiter, MaxHeaderSize, reader);
+        var (requestLine, headers, body) = await ReadPayloadAsync(headerDelimiter, requestLineSelimiter, MaxHeaderSize, reader);
 
         if (requestLine is null)
         {
             throw new InvalidOperationException("Missing request information");
         }
 
-        var (method, path, _) = ParseRequestLine(requestLine);
-        var headers = ParseHeaders(header);
+        var (method, path, _) = requestLine.Value;
         if (method == "GET")
         {
             await HandleGetRequest(networkStream, path, headers);
+            return;
+        }
+        else if (method == "POST")
+        {
+            await HandlePostRequest(networkStream, path, headers, body);
             return;
         }
 
@@ -48,7 +52,7 @@ async Task ProcessClientAsync(Socket socket)
     }
 }
 
-async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>> headers)
+async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>>? headers)
 {
     if (path == "/")
     {
@@ -66,7 +70,7 @@ async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary
 
     if (path.StartsWith("/user-agent"))
     {
-        var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
+        var userAgent = headers?.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
         //return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgent.Length}\r\n\r\n{userAgent}";
         await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse(userAgent, contentType: "text/plain")));
         return;
@@ -97,6 +101,34 @@ async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary
     await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.NotFound, "Not Found")));
 }
 
+async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>>? headers, ReadOnlySequence<byte>? body)
+{
+    if (path.StartsWith("/files"))
+    {
+        if (body is null)
+        {
+            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.BadRequest)));
+            return;
+        }
+        var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
+        if (path.Contains(".."))
+        {
+            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.BadRequest)));
+            return;
+        }
+
+        var fullPath = Path.Combine(initialFilePath, fileName);
+        if (File.Exists(fullPath))
+        {
+            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.UnprocessableEntity, "File existed")));
+        }
+
+        using var fileStream = File.OpenWrite(fullPath);
+        await fileStream.WriteAsync(body.Value.ToArray());
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.NoContent, "Created")));
+    }
+}
+
 static string GetEmptyResponse(HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
@@ -107,6 +139,60 @@ static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = d
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
     return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
+}
+
+
+static async Task<Request> ReadPayloadAsync(byte[] headerDelimiter, byte[] requestLineSelimiter, long MaxHeaderSize, PipeReader reader)
+{
+    Dictionary<string, List<string>>? headers = null;
+    RequestLine? requestLine = null;
+    ReadOnlySequence<byte>? body = null;
+    var contentLength = 0;
+
+    while (true)
+    {
+        var result = await reader.ReadAsync();
+        var buffer = result.Buffer;
+        var sequenceReader = new SequenceReader<byte>(buffer);
+
+        if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
+        {
+            requestLine = ParseRequestLine(Encoding.UTF8.GetString(requestLineSpan));
+            reader.AdvanceTo(sequenceReader.Position);
+            continue;
+        }
+        else if (headers is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
+        {
+            headers = ParseHeaders(Encoding.UTF8.GetString(headerSpan));
+            reader.AdvanceTo(sequenceReader.Position);
+            if (!headers.TryGetValue("content-length", out var length))
+            {
+                break;// skip reading body
+            }
+            contentLength = int.Parse(length.FirstOrDefault() ?? string.Empty);
+            continue;
+        }
+        else if (body is null && sequenceReader.TryReadExact(contentLength, out ReadOnlySequence<byte> bodySpan))
+        {
+            body = bodySpan;
+            break;
+        }
+
+        if (buffer.Length > MaxHeaderSize)
+        {
+            throw new InvalidOperationException();
+        }
+
+        reader.AdvanceTo(buffer.Start, buffer.End);
+
+
+        if (result.IsCompleted)
+        {
+            break;
+        }
+    }
+
+    return new Request(requestLine, headers, body);
 }
 
 static RequestLine ParseRequestLine(string requestLine)
@@ -136,43 +222,5 @@ static Dictionary<string, List<string>> ParseHeaders(string? header)
 }
 
 
-static async Task<(string?, string?)> ReadPayloadAsync(byte[] headerDelimiter, byte[] requestLineSelimiter, long MaxHeaderSize, PipeReader reader)
-{
-    string? header = null;
-    string? requestLine = null;
-    while (true)
-    {
-        var result = await reader.ReadAsync();
-        var buffer = result.Buffer;
-        var sequenceReader = new SequenceReader<byte>(buffer);
-
-        if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
-        {
-            requestLine = Encoding.UTF8.GetString(requestLineSpan);
-            reader.AdvanceTo(sequenceReader.Position);
-            continue;
-        }
-        else if (header is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
-        {
-            header = Encoding.UTF8.GetString(headerSpan);
-            reader.AdvanceTo(sequenceReader.Position);
-            break;
-        }
-
-        if (buffer.Length > MaxHeaderSize)
-        {
-            throw new InvalidOperationException("");
-        }
-
-        reader.AdvanceTo(buffer.Start, buffer.End);
-
-
-        if (result.IsCompleted)
-        {
-            break;
-        }
-    }
-    return (requestLine, header);
-}
-
+record struct Request(RequestLine? RequestLine, Dictionary<string, List<string>>? Headers, ReadOnlySequence<byte>? Body);
 record struct RequestLine(string Method, string Path, string? Protocol);
