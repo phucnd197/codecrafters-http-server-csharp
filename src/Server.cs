@@ -17,72 +17,93 @@ byte[] requestLineSelimiter = "\r\n"u8.ToArray();
 const long MaxHeaderSize = 8 * 1024;
 while (true)
 {
-    using var socket = await server.AcceptSocketAsync(); // wait for client
-    using var networkStream = new NetworkStream(socket);
-    var reader = PipeReader.Create(networkStream);
-    string? header = null;
-    string? requestLine = null;
-    while (true)
+    var socket = await server.AcceptSocketAsync(); // wait for client
+    _ = Task.Run(() => ProcessClientAsync(socket));
+}
+
+async Task ProcessClientAsync(Socket socket)
+{
+    using (socket)
     {
-        var result = await reader.ReadAsync();
-        var buffer = result.Buffer;
-        var sequenceReader = new SequenceReader<byte>(buffer);
-
-        if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
+        using var networkStream = new NetworkStream(socket);
+        var reader = PipeReader.Create(networkStream);
+        string? header = null;
+        string? requestLine = null;
+        while (true)
         {
-            requestLine = Encoding.UTF8.GetString(requestLineSpan);
-            reader.AdvanceTo(sequenceReader.Position);
-            continue;
+            var result = await reader.ReadAsync();
+            var buffer = result.Buffer;
+            var sequenceReader = new SequenceReader<byte>(buffer);
+
+            if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
+            {
+                requestLine = Encoding.UTF8.GetString(requestLineSpan);
+                reader.AdvanceTo(sequenceReader.Position);
+                continue;
+            }
+            else if (header is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
+            {
+                header = Encoding.UTF8.GetString(headerSpan);
+                reader.AdvanceTo(sequenceReader.Position);
+                break;
+            }
+
+            if (buffer.Length > MaxHeaderSize)
+            {
+                throw new InvalidOperationException("");
+            }
+
+            reader.AdvanceTo(buffer.Start, buffer.End);
+
+
+            if (result.IsCompleted)
+            {
+                break;
+            }
         }
-        else if (header is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
+
+        if (requestLine is null)
         {
-            header = Encoding.UTF8.GetString(headerSpan);
-            reader.AdvanceTo(sequenceReader.Position);
-            break;
+            throw new InvalidOperationException("Missing request information");
         }
 
-        if (buffer.Length > MaxHeaderSize)
+        var content = string.Empty;
+        var (method, path, _) = ParseRequestLine(requestLine);
+        var headers = ParseHeaders(header);
+        if (method == "GET")
         {
-            throw new InvalidOperationException("");
+            content = HandleGetRequest(path, headers);
         }
 
-        reader.AdvanceTo(buffer.Start, buffer.End);
-
-
-        if (result.IsCompleted)
+        if (string.IsNullOrEmpty(content))
         {
-            break;
+            content = "HTTP/1.1 404 Not Found\r\n\r\n";
         }
+
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(content));
     }
+}
 
-    if (requestLine is null)
-    {
-        throw new InvalidOperationException("Missing request information");
-    }
-
-    byte[] content;
-    var (_, path, _) = ParseRequestLine(requestLine);
-    var headers = ParseHeaders(header);
+static string HandleGetRequest(string path, Dictionary<string, List<string>> headers)
+{
     if (path == "/")
     {
-        content = Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n\r\n");
-    }
-    else if (path.StartsWith("/echo"))
-    {
-        var rest = path.Length > 6 ? path.AsSpan().Slice(6) : string.Empty;
-        content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {rest.Length}\r\n\r\n{rest}");
-    }
-    else if (path.StartsWith("/user-agent"))
-    {
-        var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
-        content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgent.Length}\r\n\r\n{userAgent}");
-    }
-    else
-    {
-        content = Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n");
+        return "HTTP/1.1 200 OK\r\n\r\n";
     }
 
-    await networkStream.WriteAsync(content);
+    if (path.StartsWith("/echo"))
+    {
+        var rest = path.Length > 6 ? path.AsSpan().Slice(6) : string.Empty;
+        return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {rest.Length}\r\n\r\n{rest}";
+    }
+
+    if (path.StartsWith("/user-agent"))
+    {
+        var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
+        return $"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {userAgent.Length}\r\n\r\n{userAgent}";
+    }
+
+    return string.Empty;
 }
 
 static RequestLine ParseRequestLine(string requestLine)
