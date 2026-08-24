@@ -121,6 +121,7 @@ async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionar
         if (File.Exists(fullPath))
         {
             await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.UnprocessableEntity, "File existed")));
+            return;
         }
 
         using var fileStream = File.OpenWrite(fullPath);
