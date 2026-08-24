@@ -125,7 +125,7 @@ async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionar
 
         using var fileStream = File.OpenWrite(fullPath);
         await fileStream.WriteAsync(body.Value.ToArray());
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.NoContent, "Created")));
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.Created)));
     }
 }
 
