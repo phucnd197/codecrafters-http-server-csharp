@@ -18,7 +18,6 @@ const long MaxHeaderSize = 8 * 1024;
 while (true)
 {
     using var socket = await server.AcceptSocketAsync(); // wait for client
-
     using var networkStream = new NetworkStream(socket);
     var reader = PipeReader.Create(networkStream);
     string? header = null;
@@ -61,16 +60,23 @@ while (true)
         throw new InvalidOperationException("Missing request information");
     }
 
+    byte[] content;
     var path = GetPath(requestLine);
     if (path == "/")
     {
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n\r\n"));
+        content = Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\n\r\n");
+    }
+    else if (path.StartsWith("/echo"))
+    {
+        var rest = path.AsSpan().Slice(4);
+        content = Encoding.UTF8.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {rest.Length}\r\n\r\n{rest}");
     }
     else
     {
-
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n"));
+        content = Encoding.UTF8.GetBytes("HTTP/1.1 404 Not Found\r\n\r\n");
     }
+
+    await networkStream.WriteAsync(content);
 }
 
 static string GetPath(string requestLine)
@@ -79,3 +85,8 @@ static string GetPath(string requestLine)
     return components[1];
 }
 
+static bool TryGetIndexOf(string str, string sub, out int index)
+{
+    index = str.IndexOf(sub);
+    return index != -1;
+}
