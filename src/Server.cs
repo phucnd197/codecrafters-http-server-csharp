@@ -93,6 +93,8 @@ async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary
         using var fileStream = File.OpenRead(fullPath);
         await fileStream.CopyToAsync(networkStream);
     }
+
+    await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse([], HttpStatusCode.NotFound, "Not Found")));
 }
 
 static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
