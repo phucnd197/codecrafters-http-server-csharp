@@ -27,40 +27,7 @@ async Task ProcessClientAsync(Socket socket)
     {
         using var networkStream = new NetworkStream(socket);
         var reader = PipeReader.Create(networkStream);
-        string? header = null;
-        string? requestLine = null;
-        while (true)
-        {
-            var result = await reader.ReadAsync();
-            var buffer = result.Buffer;
-            var sequenceReader = new SequenceReader<byte>(buffer);
-
-            if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
-            {
-                requestLine = Encoding.UTF8.GetString(requestLineSpan);
-                reader.AdvanceTo(sequenceReader.Position);
-                continue;
-            }
-            else if (header is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
-            {
-                header = Encoding.UTF8.GetString(headerSpan);
-                reader.AdvanceTo(sequenceReader.Position);
-                break;
-            }
-
-            if (buffer.Length > MaxHeaderSize)
-            {
-                throw new InvalidOperationException("");
-            }
-
-            reader.AdvanceTo(buffer.Start, buffer.End);
-
-
-            if (result.IsCompleted)
-            {
-                break;
-            }
-        }
+        var (requestLine, header) = await ReadPayloadAsync(headerDelimiter, requestLineSelimiter, MaxHeaderSize, reader);
 
         if (requestLine is null)
         {
@@ -130,6 +97,46 @@ static Dictionary<string, List<string>> ParseHeaders(string? header)
         values.Add(component[1]);
     }
     return headers;
+}
+
+
+static async Task<(string?, string?)> ReadPayloadAsync(byte[] headerDelimiter, byte[] requestLineSelimiter, long MaxHeaderSize, PipeReader reader)
+{
+    string? header = null;
+    string? requestLine = null;
+    while (true)
+    {
+        var result = await reader.ReadAsync();
+        var buffer = result.Buffer;
+        var sequenceReader = new SequenceReader<byte>(buffer);
+
+        if (requestLine is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> requestLineSpan, requestLineSelimiter, true))
+        {
+            requestLine = Encoding.UTF8.GetString(requestLineSpan);
+            reader.AdvanceTo(sequenceReader.Position);
+            continue;
+        }
+        else if (header is null && sequenceReader.TryReadTo(out ReadOnlySequence<byte> headerSpan, headerDelimiter, true))
+        {
+            header = Encoding.UTF8.GetString(headerSpan);
+            reader.AdvanceTo(sequenceReader.Position);
+            break;
+        }
+
+        if (buffer.Length > MaxHeaderSize)
+        {
+            throw new InvalidOperationException("");
+        }
+
+        reader.AdvanceTo(buffer.Start, buffer.End);
+
+
+        if (result.IsCompleted)
+        {
+            break;
+        }
+    }
+    return (requestLine, header);
 }
 
 record struct RequestLine(string Method, string Path, string? Protocol);
