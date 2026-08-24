@@ -99,8 +99,8 @@ static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = d
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
     return content.Length == 0 && contentLength is null
-        ? $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {status?.ToString() ?? statusCode ?? "OK"}{contentTypeHeader}\r\n\r\n"
-        : $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {status?.ToString() ?? statusCode ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
+        ? $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\n\r\n"
+        : $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
 }
 
 static RequestLine ParseRequestLine(string requestLine)
