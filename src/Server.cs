@@ -44,7 +44,7 @@ async Task ProcessClientAsync(Socket socket)
             return;
         }
 
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes("HTTP/1.1 405 Method Not Allowed\r\n\r\n"));
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.MethodNotAllowed, "Method Not Allowed")));
     }
 }
 
@@ -77,32 +77,36 @@ async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary
         var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
         if (path.Contains(".."))
         {
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse([], HttpStatusCode.BadRequest)));
+            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.BadRequest)));
             return;
         }
 
         var fullPath = Path.Combine(initialFilePath, fileName);
         if (!File.Exists(fullPath))
         {
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse([], HttpStatusCode.NotFound, "Not Found")));
+            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.NotFound, "Not Found")));
             return;
         }
 
         var fileInfo = new FileInfo(fullPath);
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse([], contentType: "application/octet-stream", contentLength: fileInfo.Length)));
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(contentType: "application/octet-stream", contentLength: fileInfo.Length)));
         using var fileStream = File.OpenRead(fullPath);
         await fileStream.CopyToAsync(networkStream);
     }
 
-    await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetResponse([], HttpStatusCode.NotFound, "Not Found")));
+    await networkStream.WriteAsync(Encoding.UTF8.GetBytes(GetEmptyResponse(HttpStatusCode.NotFound, "Not Found")));
+}
+
+static string GetEmptyResponse(HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
+{
+    var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
+    return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\n\r\n";
 }
 
 static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
 {
     var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
-    return content.Length == 0 && contentLength is null
-        ? $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\n\r\n"
-        : $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
+    return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
 }
 
 static RequestLine ParseRequestLine(string requestLine)
