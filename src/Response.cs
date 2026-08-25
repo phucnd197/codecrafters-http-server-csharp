@@ -42,7 +42,7 @@ public readonly struct Response
 
         public static async Task<Response> Create(byte[] content, Dictionary<string, List<string>> requestHeaders, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default)
         {
-            requestHeaders.TryGetValue("connection", out var connection);
+            var connection = requestHeaders.TryGetValue("connection", out var raw) ? raw.FirstOrDefault() : null;
             if (TryGetEncoding(requestHeaders, out var encoding))
             {
                 if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
@@ -54,7 +54,7 @@ public readonly struct Response
                     }
 
                     var rawContent = outputStream.ToArray();
-                    return new Response(rawContent, status, statusCode, contentType, encoding, connection?.FirstOrDefault());
+                    return new Response(rawContent, status, statusCode, contentType, encoding, connection);
                 }
                 else if (encoding.Equals("brotli", StringComparison.OrdinalIgnoreCase))
                 {
@@ -65,11 +65,11 @@ public readonly struct Response
                     }
 
                     var rawContent = outputStream.ToArray();
-                    return new Response(rawContent, status, statusCode, contentType, encoding, connection?.FirstOrDefault());
+                    return new Response(rawContent, status, statusCode, contentType, encoding, connection);
                 }
             }
 
-            return new Response(content, status, statusCode, contentType, connection: connection?.FirstOrDefault());
+            return new Response(content, status, statusCode, contentType, connection: connection);
         }
 
         private readonly static HashSet<string> SupportedEncodings = new(StringComparer.OrdinalIgnoreCase) { "gzip", "brotli" };
