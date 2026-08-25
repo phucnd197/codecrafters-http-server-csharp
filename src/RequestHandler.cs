@@ -43,15 +43,15 @@ internal sealed class RequestHandler
 
         if (path.StartsWith("/echo"))
         {
-            var rest = path.Length > 6 ? path.AsSpan().Slice(6).ToString() : string.Empty;
-            await WriteToNetworkStream(networkStream, await Response.Factory.Create(rest, headers, contentType: "text/plain"));
+            var rest = path.Length > 6 ? path.Substring(6) : string.Empty;
+            await WriteToNetworkStream(networkStream, await Response.Factory.Create(rest, headers));
             return;
         }
 
         if (path.StartsWith("/user-agent"))
         {
             var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
-            await WriteToNetworkStream(networkStream, await Response.Factory.Create(userAgent, headers, contentType: "text/plain"));
+            await WriteToNetworkStream(networkStream, await Response.Factory.Create(userAgent, headers));
             return;
         }
 

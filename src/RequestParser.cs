@@ -98,7 +98,7 @@ public static class RequestParser
             {
                 headers[component[0].ToLower()] = values = [];
             }
-            values.Add(component[1]);
+            values.AddRange(component[1].Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
         }
         return headers;
     }
