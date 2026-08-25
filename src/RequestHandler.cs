@@ -7,32 +7,51 @@ namespace codecrafters_http_server.src;
 
 internal sealed class RequestHandler
 {
-    private readonly string initialFilePath;
+    private readonly string _initialFilePath;
+
     public RequestHandler(string[] args)
     {
         var directoryArgStart = Array.IndexOf(args, "--directory");
-        initialFilePath = directoryArgStart != -1 && args.Length > directoryArgStart + 1 ? args[directoryArgStart + 1] : string.Empty;
+        _initialFilePath = directoryArgStart != -1 && args.Length > directoryArgStart + 1 ? args[directoryArgStart + 1] : string.Empty;
     }
 
-    public async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>>? headers)
+    public async Task HandleRequest(NetworkStream networkStream, Request request)
+    {
+        var (requestLine, headers, body) = request;
+        var (method, path, _) = requestLine;
+        if (method == "GET")
+        {
+            await HandleGetRequest(networkStream, path, headers);
+            return;
+        }
+        else if (method == "POST")
+        {
+            await HandlePostRequest(networkStream, path, headers, body);
+            return;
+        }
+
+        await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.MethodNotAllowed, "Method Not Allowed"));
+    }
+
+    public async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>> headers)
     {
         if (path == "/")
         {
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetResponse([])));
+            await WriteToNetworkStream(networkStream, Response.Factory.Create());
             return;
         }
 
         if (path.StartsWith("/echo"))
         {
-            var rest = path.Length > 6 ? path.AsSpan().Slice(6) : string.Empty;
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetResponse(rest, contentType: "text/plain")));
+            var rest = path.Length > 6 ? path.AsSpan().Slice(6).ToString() : string.Empty;
+            await WriteToNetworkStream(networkStream, await Response.Factory.Create(rest, headers, contentType: "text/plain"));
             return;
         }
 
         if (path.StartsWith("/user-agent"))
         {
-            var userAgent = headers?.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetResponse(userAgent, contentType: "text/plain")));
+            var userAgent = headers.GetValueOrDefault("user-agent")?.FirstOrDefault() ?? string.Empty;
+            await WriteToNetworkStream(networkStream, await Response.Factory.Create(userAgent, headers, contentType: "text/plain"));
             return;
         }
 
@@ -41,52 +60,60 @@ internal sealed class RequestHandler
             var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
             if (path.Contains(".."))
             {
-                await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.BadRequest)));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
                 return;
             }
 
-            var fullPath = Path.Combine(initialFilePath, fileName);
+            var fullPath = Path.Combine(_initialFilePath, fileName);
             if (!File.Exists(fullPath))
             {
-                await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.NotFound, "Not Found")));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.NotFound, "Not Found"));
                 return;
             }
 
-            var fileInfo = new FileInfo(fullPath);
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(contentType: "application/octet-stream", contentLength: fileInfo.Length)));
-            using var fileStream = File.OpenRead(fullPath);
-            await fileStream.CopyToAsync(networkStream);
+            await WriteToNetworkStream(networkStream, await Response.Factory.Create(await File.ReadAllBytesAsync(fullPath), headers, contentType: "application/octet-stream"));
+            return;
         }
 
-        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.NotFound, "Not Found")));
+        await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.NotFound, "Not Found"));
     }
 
-    public async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>>? headers, ReadOnlySequence<byte>? body)
+    public async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>> headers, ReadOnlySequence<byte>? body)
     {
         if (path.StartsWith("/files"))
         {
             if (body is null)
             {
-                await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.BadRequest)));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
                 return;
             }
             var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
             if (path.Contains(".."))
             {
-                await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.BadRequest)));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
                 return;
             }
 
-            var fullPath = Path.Combine(initialFilePath, fileName);
+            var fullPath = Path.Combine(_initialFilePath, fileName);
             if (File.Exists(fullPath))
             {
-                await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.UnprocessableEntity, "File existed")));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.UnprocessableEntity, "File existed"));
                 return;
             }
 
             using var fileStream = File.OpenWrite(fullPath);
             await fileStream.WriteAsync(body.Value.ToArray());
-            await networkStream.WriteAsync(Encoding.UTF8.GetBytes(Utility.GetEmptyResponse(HttpStatusCode.Created)));
+            await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.Created));
+        }
+    }
+
+    private static async Task WriteToNetworkStream(NetworkStream networkStream, Response response)
+    {
+        await networkStream.WriteAsync(Encoding.UTF8.GetBytes(response.GetResponseString()));
+        if (response.Content is not null)
+        {
+            await networkStream.WriteAsync(response.Content.Value);
         }
     }
 }
+

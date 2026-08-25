@@ -1,16 +1,15 @@
 ﻿using System.Buffers;
 using System.IO.Pipelines;
-using System.Net;
 using System.Text;
 
 namespace codecrafters_http_server.src;
 
 
-public record struct Request(RequestLine? RequestLine, Dictionary<string, List<string>>? Headers, ReadOnlySequence<byte>? Body);
+public record struct Request(RequestLine RequestLine, Dictionary<string, List<string>> Headers, ReadOnlySequence<byte>? Body);
 
 public record struct RequestLine(string Method, string Path, string? Protocol);
 
-public static class Utility
+public static class RequestParser
 {
     private readonly static byte[] headerDelimiter = "\r\n\r\n"u8.ToArray();
     private readonly static byte[] requestLineSelimiter = "\r\n"u8.ToArray();
@@ -66,16 +65,25 @@ public static class Utility
             }
         }
 
-        return new Request(requestLine, headers, body);
+        if (requestLine is null)
+        {
+            throw new InvalidOperationException("Missing request information");
+        }
+        if (headers is null)
+        {
+            throw new InvalidOperationException("Missing headers information");
+        }
+
+        return new Request(requestLine.Value, headers, body);
     }
 
-    static RequestLine ParseRequestLine(string requestLine)
+    private static RequestLine ParseRequestLine(string requestLine)
     {
         var components = requestLine.Split(' ');
         return new RequestLine(components[0], components[1], components[2]);
     }
 
-    static Dictionary<string, List<string>> ParseHeaders(string? header)
+    private static Dictionary<string, List<string>> ParseHeaders(string? header)
     {
         if (string.IsNullOrEmpty(header))
         {
@@ -93,18 +101,5 @@ public static class Utility
             values.Add(component[1]);
         }
         return headers;
-    }
-
-    public static string GetEmptyResponse(HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
-    {
-        var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
-        var contentLengthHeader = contentLength is not null ? $"\r\nContent-Length: {contentLength}" : string.Empty;
-        return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}{contentLengthHeader}\r\n\r\n";
-    }
-
-    public static string GetResponse(ReadOnlySpan<char> content, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, long? contentLength = default)
-    {
-        var contentTypeHeader = contentType is not null ? $"\r\nContent-Type: {contentType}" : string.Empty;
-        return $"HTTP/1.1 {(int)(status ?? HttpStatusCode.OK)} {statusCode ?? status?.ToString() ?? "OK"}{contentTypeHeader}\r\nContent-Length: {contentLength ?? content.Length}\r\n\r\n{content}";
     }
 }
