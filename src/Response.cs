@@ -47,8 +47,10 @@ public readonly struct Response
             if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
             {
                 using var outputStream = new MemoryStream();
-                using var gzipStream = new GZipStream(outputStream, CompressionLevel.Optimal);
-                await gzipStream.WriteAsync(content);
+                using (var gzipStream = new GZipStream(outputStream, CompressionLevel.Optimal))
+                {
+                    await gzipStream.WriteAsync(content);
+                }
 
                 var rawContent = outputStream.ToArray();
                 return new Response(rawContent, status, statusCode, contentType, encoding);
@@ -56,8 +58,10 @@ public readonly struct Response
             else if (encoding.Equals("brotli", StringComparison.OrdinalIgnoreCase))
             {
                 using var outputStream = new MemoryStream();
-                using var brotliStream = new BrotliStream(outputStream, CompressionLevel.Optimal);
-                await brotliStream.WriteAsync(content);
+                using (var brotliStream = new BrotliStream(outputStream, CompressionLevel.Optimal))
+                {
+                    await brotliStream.WriteAsync(content);
+                }
 
                 var rawContent = outputStream.ToArray();
                 return new Response(rawContent, status, statusCode, contentType, encoding);
