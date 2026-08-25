@@ -30,14 +30,14 @@ internal sealed class RequestHandler
             return;
         }
 
-        await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.MethodNotAllowed, "Method Not Allowed"));
+        await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.MethodNotAllowed, "Method Not Allowed"));
     }
 
     public async Task HandleGetRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>> headers)
     {
         if (path == "/")
         {
-            await WriteToNetworkStream(networkStream, Response.Factory.Create());
+            await WriteToNetworkStream(networkStream, Response.Factory.Create(headers));
             return;
         }
 
@@ -60,14 +60,14 @@ internal sealed class RequestHandler
             var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
             if (path.Contains(".."))
             {
-                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.BadRequest));
                 return;
             }
 
             var fullPath = Path.Combine(_initialFilePath, fileName);
             if (!File.Exists(fullPath))
             {
-                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.NotFound, "Not Found"));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.NotFound, "Not Found"));
                 return;
             }
 
@@ -75,7 +75,7 @@ internal sealed class RequestHandler
             return;
         }
 
-        await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.NotFound, "Not Found"));
+        await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.NotFound, "Not Found"));
     }
 
     public async Task HandlePostRequest(NetworkStream networkStream, string path, Dictionary<string, List<string>> headers, ReadOnlySequence<byte>? body)
@@ -84,26 +84,26 @@ internal sealed class RequestHandler
         {
             if (body is null)
             {
-                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.BadRequest));
                 return;
             }
             var fileName = path.Length > 7 ? path.Substring(7) : string.Empty;
             if (path.Contains(".."))
             {
-                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.BadRequest));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.BadRequest));
                 return;
             }
 
             var fullPath = Path.Combine(_initialFilePath, fileName);
             if (File.Exists(fullPath))
             {
-                await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.UnprocessableEntity, "File existed"));
+                await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.UnprocessableEntity, "File existed"));
                 return;
             }
 
             using var fileStream = File.OpenWrite(fullPath);
             await fileStream.WriteAsync(body.Value.ToArray());
-            await WriteToNetworkStream(networkStream, Response.Factory.Create(HttpStatusCode.Created));
+            await WriteToNetworkStream(networkStream, Response.Factory.Create(headers, HttpStatusCode.Created));
         }
     }
 

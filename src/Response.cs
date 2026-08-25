@@ -12,14 +12,16 @@ public readonly struct Response
     public string ContentType { get; }
     public long? ContentLength { get => Content?.Length; }
     public string? ContentEncoding { get; }
+    public string? Connection { get; }
 
-    private Response(ReadOnlyMemory<byte>? content = default, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, string? contentEncoding = default)
+    private Response(ReadOnlyMemory<byte>? content = default, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default, string? contentEncoding = default, string? connection = default)
     {
         Content = content;
         Status = status ?? HttpStatusCode.OK;
         StatusCode = statusCode ?? Status.ToString();
         ContentType = contentType ?? "text/plain";
         ContentEncoding = contentEncoding;
+        Connection = connection;
     }
 
     public string GetResponseString()
@@ -27,7 +29,8 @@ public readonly struct Response
         var contentTypeHeader = ContentType is not null ? $"\r\nContent-Type: {ContentType}" : string.Empty;
         var contentLengthHeader = ContentLength is not null ? $"\r\nContent-Length: {ContentLength}" : string.Empty;
         var contentEncodingHeader = ContentEncoding is not null ? $"\r\nContent-Encoding: {ContentEncoding}" : string.Empty;
-        return $"HTTP/1.1 {(int)Status} {StatusCode}{contentTypeHeader}{contentLengthHeader}{contentEncodingHeader}\r\n\r\n";
+        var connectionHeader = Connection is not null ? $"\r\nConnection: {Connection}" : string.Empty;
+        return $"HTTP/1.1 {(int)Status} {StatusCode}{contentTypeHeader}{contentLengthHeader}{contentEncodingHeader}{connectionHeader}\r\n\r\n";
     }
 
     public sealed class Factory
@@ -39,35 +42,34 @@ public readonly struct Response
 
         public static async Task<Response> Create(byte[] content, Dictionary<string, List<string>> requestHeaders, HttpStatusCode? status = default, string? statusCode = default, string? contentType = default)
         {
-            if (!TryGetEncoding(requestHeaders, out var encoding))
+            requestHeaders.TryGetValue("connection", out var connection);
+            if (TryGetEncoding(requestHeaders, out var encoding))
             {
-                return new Response(content, status, statusCode, contentType);
-            }
-
-            if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
-            {
-                using var outputStream = new MemoryStream();
-                using (var gzipStream = new GZipStream(outputStream, CompressionLevel.Optimal))
+                if (encoding.Equals("gzip", StringComparison.OrdinalIgnoreCase))
                 {
-                    await gzipStream.WriteAsync(content);
-                }
+                    using var outputStream = new MemoryStream();
+                    using (var gzipStream = new GZipStream(outputStream, CompressionLevel.Optimal))
+                    {
+                        await gzipStream.WriteAsync(content);
+                    }
 
-                var rawContent = outputStream.ToArray();
-                return new Response(rawContent, status, statusCode, contentType, encoding);
-            }
-            else if (encoding.Equals("brotli", StringComparison.OrdinalIgnoreCase))
-            {
-                using var outputStream = new MemoryStream();
-                using (var brotliStream = new BrotliStream(outputStream, CompressionLevel.Optimal))
+                    var rawContent = outputStream.ToArray();
+                    return new Response(rawContent, status, statusCode, contentType, encoding, connection?.FirstOrDefault());
+                }
+                else if (encoding.Equals("brotli", StringComparison.OrdinalIgnoreCase))
                 {
-                    await brotliStream.WriteAsync(content);
-                }
+                    using var outputStream = new MemoryStream();
+                    using (var brotliStream = new BrotliStream(outputStream, CompressionLevel.Optimal))
+                    {
+                        await brotliStream.WriteAsync(content);
+                    }
 
-                var rawContent = outputStream.ToArray();
-                return new Response(rawContent, status, statusCode, contentType, encoding);
+                    var rawContent = outputStream.ToArray();
+                    return new Response(rawContent, status, statusCode, contentType, encoding, connection?.FirstOrDefault());
+                }
             }
 
-            return new Response(content, status, statusCode, contentType);
+            return new Response(content, status, statusCode, contentType, connection: connection?.FirstOrDefault());
         }
 
         private readonly static HashSet<string> SupportedEncodings = new(StringComparer.OrdinalIgnoreCase) { "gzip", "brotli" };
@@ -84,9 +86,10 @@ public readonly struct Response
             return !string.IsNullOrEmpty(encoding);
         }
 
-        public static Response Create(HttpStatusCode? status = default, string? statusCode = default)
+        public static Response Create(Dictionary<string, List<string>> requestHeaders, HttpStatusCode? status = default, string? statusCode = default)
         {
-            return new Response(status: status, statusCode: statusCode);
+            requestHeaders.TryGetValue("connection", out var connection);
+            return new Response(status: status, statusCode: statusCode, connection: connection?.FirstOrDefault());
         }
     }
 }
