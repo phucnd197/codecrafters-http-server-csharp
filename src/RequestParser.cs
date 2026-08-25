@@ -15,7 +15,7 @@ public static class RequestParser
     private readonly static byte[] requestLineSelimiter = "\r\n"u8.ToArray();
     private const long maxHeaderSize = 8 * 1024;
 
-    public static async Task<Request> ReadPayloadAsync(PipeReader reader)
+    public static async Task<Request?> ReadPayloadAsync(PipeReader reader)
     {
         Dictionary<string, List<string>>? headers = null;
         RequestLine? requestLine = null;
@@ -45,7 +45,7 @@ public static class RequestParser
                 contentLength = int.Parse(length.FirstOrDefault() ?? string.Empty);
                 continue;
             }
-            else if (body is null && sequenceReader.TryReadExact(contentLength, out ReadOnlySequence<byte> bodySpan))
+            else if (body is null && contentLength > 0 && sequenceReader.TryReadExact(contentLength, out ReadOnlySequence<byte> bodySpan))
             {
                 body = bodySpan;
                 break;
@@ -67,11 +67,13 @@ public static class RequestParser
 
         if (requestLine is null)
         {
-            throw new InvalidOperationException("Missing request information");
+            Console.WriteLine("Missing request information");
+            return null;
         }
         if (headers is null)
         {
-            throw new InvalidOperationException("Missing headers information");
+            Console.WriteLine("Missing headers information");
+            return null;
         }
 
         return new Request(requestLine.Value, headers, body);

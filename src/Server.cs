@@ -23,8 +23,31 @@ async Task ProcessClientAsync(Socket socket)
     {
         using var networkStream = new NetworkStream(socket);
         var reader = PipeReader.Create(networkStream);
-        var request = await RequestParser.ReadPayloadAsync(reader);
-        await requestHandler.HandleRequest(networkStream, request);
+        while (true)
+        {
+            var request = await RequestParser.ReadPayloadAsync(reader);
+            if (request is null)
+            {
+                break;
+            }
+
+            await requestHandler.HandleRequest(networkStream, request.Value);
+
+            if (ShouldCloseConnection(request.Value))
+            {
+                break;
+            }
+        }
     }
+}
+
+static bool ShouldCloseConnection(Request request)
+{
+    if (request.Headers.TryGetValue("connection", out var values))
+    {
+        return values.Any(x => x.Equals("close", StringComparison.OrdinalIgnoreCase));
+    }
+
+    return false;
 }
 
